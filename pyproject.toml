@@ -67,6 +67,15 @@ Source = "https://github.com/allenai/kernel-fun"
 cu13 = ["nvidia-cutlass-dsl[cu13]>=4.4", "cuda-python>=13"]
 cu12 = ["nvidia-cutlass-dsl>=4.2.1", "cuda-python>=12.8,<13"]
 
+# The two extras are mutually exclusive by construction: they ask for different cuda-python
+# majors. uv locks the whole extra space universally, so without this it tries to satisfy
+# cu12 and cu13 at once and fails to resolve -- even under `uv sync --extra cu13`, since the
+# selector governs what is installed, not what is locked. Declaring the conflict makes uv
+# lock them as separate branches. Inert elsewhere: hatchling ignores [tool.uv], and the
+# ladder's `uv pip install -r pyproject.toml .` never builds a lock at all.
+[tool.uv]
+conflicts = [[{ extra = "cu12" }, { extra = "cu13" }]]
+
 [tool.hatch.version]
 path = "src/kernel_fun/__init__.py"
 
