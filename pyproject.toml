@@ -1,0 +1,65 @@
+# The whole of this repo. Split out of the research ladder (allenai/kernel-fun-dev, where it
+# lived as packages/kernel-fun/) on 2026-09-09 so that the shipping unit has its own history,
+# its own tags, and an install URL without a #subdirectory=. The ladder's root pyproject
+# still deliberately has no [build-system]; nothing there is installable, and this is the
+# only place a wheel is built. See README.md "Two repos".
+[build-system]
+requires = ["hatchling>=1.27"]  # >=1.27 for the PEP 639 license fields below
+build-backend = "hatchling.build"
+
+[project]
+name = "kernel-fun"
+version = "0.2.0.dev0"
+description = "CuTe/Triton kernels for linear-attention ops (KDA chunk kernel, KDA short conv), as drop-in replacements for flash-linear-attention"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+# Loose floors, not pins. This installs into training images (olmo-core's) whose torch and
+# triton are the ones the whole stack was built against; an `==` here invites pip to
+# resolve-and-replace them, which is the exact failure the image's constraints-file dance
+# exists to prevent. fla is capped because we call its internals (see _common/compat.py).
+dependencies = [
+    "torch>=2.7",
+    "triton>=3.3",
+    "fla-core>=0.5.2,<0.6",
+]
+
+[project.urls]
+# Where to ship changes. The kernels are DEVELOPED in the ladder and RELEASED from here;
+# vendor.py moves a winning chain across. Anything downstream (OLMo-core) pins Source.
+Source = "https://github.com/allenai/kernel-fun"
+"Research ladder" = "https://github.com/allenai/kernel-fun-dev"
+
+[project.optional-dependencies]
+# The CuTe DSL and cuda-python ride in with the training base image and the version there
+# is a nightly (4.6.0.dev0). Declaring them as hard dependencies would let pip swap that
+# build out from under the kernels; instead the runtime probe treats their absence as
+# "fall back to fla", i.e. a performance regression rather than a crash. This extra exists
+# for environments that genuinely need to install them.
+cute = ["nvidia-cutlass-dsl>=4.2", "cuda-python>=12.6"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kernel_fun"]
+
+# --- Tool config -------------------------------------------------------------------------
+# Inherited from the ladder repo's root pyproject until the split; restated here because
+# there is no longer a parent to inherit it from.
+
+[tool.pytest.ini_options]
+addopts = "-q"
+# `slow` (registered in tests/conftest.py) marks the prod-shaped rows: minutes, and a B300.
+# The default run is the correctness/fallback suite.
+markers = ["slow: prod-shaped rows; not in the default run"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pyright]
+extraPaths = ["src"]
+# torch, triton, fla and the CuTe DSL exist only inside the training image. On a laptop these
+# are expected to be unresolvable, and installing a multi-GB GPU stack just to quiet a
+# squiggle is not a trade worth making.
+reportMissingImports = "warning"

@@ -1,0 +1,31 @@
+# Build artifacts. This repo, unlike the research ladder, IS installable, so these are
+# reachable here in a way they were not there.
+dist/
+build/
+*.egg-info/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Generated Triton artifacts. The training image points TRITON_CACHE_DIR outside the tree;
+# a native run on a workstation would land here.
+.triton-cache/
+
+# A .venv inside the tree is how the old repo lost a day: it shadowed the container's conda
+# python and an image that definitely had torch reported "No module named torch". Install
+# this package INTO the image's python (`pip install .`), or put its src on PYTHONPATH.
+.venv/
+.python-version
+
+# macOS Finder droppings.
+.DS_Store
+*.swp
+
+# Profiler captures: 5-50MB each and git history is forever. tools/prodtime.py and
+# tools/graphprobe.py print their numbers; the captures leave a session by rsync.
+*.ncu-rep
+*.nsys-rep
+*.qdrep
+*.sqlite

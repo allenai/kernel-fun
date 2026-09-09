@@ -1,0 +1,55 @@
+kernel-fun
+Copyright (c) 2026 The Allen Institute for Artificial Intelligence
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes software derived from flash-linear-attention
+(https://github.com/fla-org/flash-linear-attention), Copyright (c) 2023-2026
+Songlin Yang, Yu Zhang, Zhiyuan Li, licensed under the MIT License. The MIT
+license text is reproduced at the end of this file and continues to apply to
+those portions.
+
+Specifically, the following modules are restructured ports of fla kernels and
+carry that lineage:
+
+  src/kernel_fun/kda/_kernels/bwd_wy.py
+      a full-K restructure of fla.ops.kda.chunk_bwd's fused wy_dqkg kernel
+  src/kernel_fun/kda/_kernels/bwd_intra_triton.py
+      a restructure of fla.ops.kda.chunk_intra's bwd_intra kernel
+  src/kernel_fun/kda/_kernels/fwd_intra_triton.py
+      a zero-fill companion to fla.ops.kda's forward intra/solve kernels,
+      written against their storage contract
+
+In addition, this package calls flash-linear-attention at runtime for the
+stages it does not replace, and delegates to it entirely for any call it does
+not support. It is not a fork: fla is a dependency.
+
+The CuTe kernels (fwd_state.py, bwd_scan.py, bwd_dhu.py, bwd_intra.py) are
+original work, though they implement fla's algorithms at fla's stage
+boundaries so that results remain comparable stage by stage.
+
+--------------------------------------------------------------------------------
+flash-linear-attention — MIT License
+--------------------------------------------------------------------------------
+
+MIT License
+
+Copyright (c) 2023-2026 Songlin Yang, Yu Zhang, Zhiyuan Li
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
