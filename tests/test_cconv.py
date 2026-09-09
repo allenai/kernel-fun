@@ -64,7 +64,9 @@ def _check(arm, x, w, dy):
     bad = []
     for name, got in ours.items():
         assert torch.isfinite(got).all(), f"{arm}: {name} is not finite"
-        assert got.dtype == ref[name].dtype, f"{arm}: {name} dtype {got.dtype} vs fla {ref[name].dtype}"
+        assert got.dtype == ref[name].dtype, (
+            f"{arm}: {name} dtype {got.dtype} vs fla {ref[name].dtype}"
+        )
         r = rel_rms(got, ref[name])
         if r > TOL[name]:
             bad.append(f"{name} {r:.2e} > {TOL[name]}")
@@ -129,7 +131,9 @@ def _fallback_cases(x, w):
         "bias": dict(bias=torch.randn(D, device=x.device)),
         "residual": dict(residual=torch.randn_like(x)),
         "no_activation": dict(activation=None),
-        "initial_state": dict(initial_state=torch.zeros(x.shape[0], D, w.shape[1], device=x.device, dtype=x.dtype)),
+        "initial_state": dict(
+            initial_state=torch.zeros(x.shape[0], D, w.shape[1], device=x.device, dtype=x.dtype)
+        ),
         "final_state": dict(output_final_state=True),
         "backend_cuda": dict(backend="cuda"),
         "unknown_flag": dict(some_future_fla_flag=True),
@@ -161,7 +165,7 @@ def test_unsupported_goes_to_fla_bit_identically(case):
     with torch.no_grad():
         ours = causal_conv1d(**kw)
         ref = fla_conv(**kw)
-    for a, b in zip(ours, ref):
+    for a, b in zip(ours, ref, strict=True):
         if a is None or b is None:
             assert a is None and b is None
         else:
@@ -263,7 +267,7 @@ def test_capture_of_cold_shape_falls_back(monkeypatch):
         replayed = run()
     g.replay()
     torch.cuda.synchronize()
-    for name, a, b in zip(("y", "dx", "dw"), (y, dx, dw), replayed):
+    for name, a, b in zip(("y", "dx", "dw"), (y, dx, dw), replayed, strict=True):
         assert torch.equal(a, b), f"{name}: replay differs from eager"
 
 
@@ -359,4 +363,6 @@ def test_fla_signature_is_fully_covered():
         if p.kind not in (p.VAR_KEYWORD, p.VAR_POSITIONAL)
     }
     uncovered = params - _HANDLED - _UNSUPPORTED
-    assert not uncovered, f"fla.causal_conv1d has parameters kernel-fun does not classify: {sorted(uncovered)}"
+    assert not uncovered, (
+        f"fla.causal_conv1d has parameters kernel-fun does not classify: {sorted(uncovered)}"
+    )

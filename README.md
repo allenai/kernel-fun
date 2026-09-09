@@ -112,6 +112,33 @@ pip install "kernel-fun @ git+ssh://git@github.com/allenai/kernel-fun.git@v0.2.0
 URL no longer carries `#subdirectory=packages/kernel-fun` — that was the path inside the
 ladder repo, before the 2026-09-09 split.)
 
+The base install declares torch, triton and `fla-core` only, with loose floors, so it never
+replaces the torch/triton a training image was built against. The CuTe DSL and cuda-python
+are **not** dependencies: they ride in with the training image, and when they are missing
+the kda family logs a reason and runs fla. An environment that needs them installed picks
+the extra for its CUDA major — the CuTe DSL ships separate CUDA 12 and CUDA 13 library
+wheels, and the bare `nvidia-cutlass-dsl` requirement is the CUDA 12 one:
+
+```
+pip install "kernel-fun[cu13] @ git+ssh://..."   # CUDA 13 torch (the production image)
+pip install "kernel-fun[cu12] @ git+ssh://..."   # a cu128 torch; untested since the image moved
+```
+
+**Tested against** — the only stack these kernels have run on. Everything else is where the
+version floors say it should work, not where anyone has checked:
+
+| | |
+|---|---|
+| GPU | B300 (sm_103; `arch_ok` admits any sm_10x, so B200 too) |
+| CUDA | 13.0 (torch `2.11.0+cu130`) |
+| torch / triton | 2.11.0 / 3.6.0 |
+| CuTe DSL | `nvidia-cutlass-dsl` 4.6.0.dev0, CUDA 13 libs |
+| flash-linear-attention | 0.5.2 (`fla-core`; `TESTED_FLA` in `_common/compat.py`, warns on anything else) |
+| Python | 3.12 |
+
+The cconv family is Triton-only and gated at sm90, so an H100 runs it — at a speed nobody
+has measured.
+
 Prefer that over `pip install -e`, which writes a `.pth` pointing back into a checkout and
 reintroduces "which copy am I running".
 

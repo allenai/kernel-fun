@@ -57,14 +57,56 @@ def log_versions_once() -> None:
 
 @cache
 def has_cute() -> bool:
-    """Is the CuTe DSL importable? Cached: the import pulls MLIR and costs seconds."""
+    """Is the CuTe DSL importable? Cached: the import pulls MLIR and costs seconds.
+
+    Also warns, once, when the DSL's CUDA build visibly disagrees with torch's — see
+    `cute_cuda_mismatch`. A warning and not a gate: the wrong-build DSL may well still
+    compile (a CUDA 12 toolchain on a CUDA 13 driver is a supported combination), and
+    silently routing a working install to fla is the failure this package exists to avoid.
+    """
     try:
         import cuda.bindings.driver  # noqa: F401
         import cutlass  # noqa: F401
         import cutlass.cute  # noqa: F401
     except Exception:  # pragma: no cover - environment-dependent
         return False
+    reason = cute_cuda_mismatch(torch.version.cuda, _installed_dists())
+    if reason is not None:
+        log_once(f"kernel-fun: {reason}", logging.WARNING)
     return True
+
+
+def _installed_dists() -> frozenset[str]:
+    import importlib.metadata as md
+
+    return frozenset(
+        d.metadata["Name"].lower() for d in md.distributions() if d.metadata["Name"]
+    )
+
+
+def cute_cuda_mismatch(torch_cuda: str | None, installed: frozenset[str]) -> str | None:
+    """Is the installed CuTe DSL the CUDA build torch was built for? Pure, for the test.
+
+    On PyPI `nvidia-cutlass-dsl` >= 4.6 always pulls `nvidia-cutlass-dsl-libs-cu12` and
+    ships the CUDA 13 libraries only through its `[cu13]` extra, so a CUDA 13 torch next to
+    a DSL whose cu13 libs are absent means somebody wrote the bare requirement (this
+    package's own extra is `kernel-fun[cu13]`; OLMo-core's is FA4's `[cu13]`). Only that
+    one direction is detectable: before 4.6 the CUDA 12 libraries live inside the base
+    wheel, and a cu13-only install on a CUDA 12 torch cannot be told from a pre-split one.
+    """
+    if not torch_cuda or "nvidia-cutlass-dsl" not in installed:
+        return None
+    major = torch_cuda.split(".")[0]
+    has_cu12 = "nvidia-cutlass-dsl-libs-cu12" in installed
+    has_cu13 = "nvidia-cutlass-dsl-libs-cu13" in installed
+    if major == "13" and has_cu12 and not has_cu13:
+        return (
+            f"torch is a CUDA {torch_cuda} build but the CuTe DSL installed is the CUDA 12 "
+            f"one (nvidia-cutlass-dsl-libs-cu12 without -cu13). Install "
+            f"nvidia-cutlass-dsl[cu13] — kernel-fun[cu13] does — or expect cute.compile "
+            f"to fail rather than fall back"
+        )
+    return None
 
 
 @cache

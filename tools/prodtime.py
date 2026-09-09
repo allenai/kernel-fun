@@ -58,7 +58,10 @@ def kda_row(B=16, T=8192, H=16, K=128, V=256):
         return run
 
     ours, ref = timed(step(chunk_kda)), timed(step(fla_kda))
-    print(f"kda   prod8192 gate+norm fwd+bwd   fla {ref:7.2f} ms   kernel-fun {ours:7.2f} ms   {ref / ours:.3f}x")
+    print(
+        f"kda   prod8192 gate+norm fwd+bwd   fla {ref:7.2f} ms   kernel-fun {ours:7.2f} ms"
+        f"   {ref / ours:.3f}x"
+    )
 
 
 def cconv_rows(B=16, T=8192, W=4):
@@ -78,17 +81,30 @@ def cconv_rows(B=16, T=8192, W=4):
         w = (torch.rand(D, W, device="cuda") * 2 - 1) * W ** -0.5
         dy = torch.randn(B, T, D, device="cuda", dtype=torch.bfloat16)
 
-        def fwd(fn):
+        # Bound as defaults: these closures are timed inside the loop iteration that made
+        # them, but binding makes that true by construction rather than by call order.
+        def fwd(fn, x=x, w=w):
             def run():
                 with torch.no_grad():
                     fn(x=x, weight=w, activation="silu")
             return run
 
+        def ours_bwd(x=x, w=w, dy=dy):
+            strip.cconv_bwd(x, w, dy)
+
+        def fla_bwd_run(x=x, w=w, dy=dy):
+            fla_bwd(x, dy, None, w, activation="silu")
+
         f_ours, f_ref = timed(fwd(causal_conv1d)), timed(fwd(fla_conv))
-        b_ours = timed(lambda: strip.cconv_bwd(x, w, dy))
-        b_ref = timed(lambda: fla_bwd(x, dy, None, w, activation="silu"))
-        print(f"cconv D={D} fwd            fla {f_ref:7.3f} ms   kernel-fun {f_ours:7.3f} ms   {f_ref / f_ours:.2f}x")
-        print(f"cconv D={D} bwd (isolated) fla {b_ref:7.3f} ms   kernel-fun {b_ours:7.3f} ms   {b_ref / b_ours:.2f}x")
+        b_ours, b_ref = timed(ours_bwd), timed(fla_bwd_run)
+        print(
+            f"cconv D={D} fwd            fla {f_ref:7.3f} ms   kernel-fun {f_ours:7.3f} ms"
+            f"   {f_ref / f_ours:.2f}x"
+        )
+        print(
+            f"cconv D={D} bwd (isolated) fla {b_ref:7.3f} ms   kernel-fun {b_ours:7.3f} ms"
+            f"   {b_ref / b_ours:.2f}x"
+        )
 
 
 if __name__ == "__main__":

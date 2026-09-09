@@ -19,7 +19,11 @@ Two things this file encodes that cost a day to learn:
 The CPU-enqueue column includes `torch.autograd.grad`'s own per-call floor (~0.55 ms at
 these sizes), which a training step pays once per backward, not once per op.
 """
-import statistics, time, traceback, torch
+import statistics
+import time
+import traceback
+
+import torch
 
 B, T, H, K, V = 8, 8192, 16, 128, 256
 WARM, ITERS = 3, 20
@@ -33,9 +37,13 @@ def timed(fn):
     gpu, cpu = [], []
     for _ in range(ITERS):
         s, e = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-        torch.cuda.synchronize(); t0 = time.perf_counter(); s.record()
+        torch.cuda.synchronize()
+        t0 = time.perf_counter()
+        s.record()
         fn()
-        cpu.append((time.perf_counter() - t0) * 1e3); e.record(); torch.cuda.synchronize()
+        cpu.append((time.perf_counter() - t0) * 1e3)
+        e.record()
+        torch.cuda.synchronize()
         gpu.append(s.elapsed_time(e))
     return statistics.median(gpu), statistics.median(cpu)
 
@@ -54,7 +62,9 @@ def make_leaves():
 
 
 def maxdiff(xs, ys):
-    return " ".join(f"{(x.float() - y.float()).abs().max().item():.1e}" for x, y in zip(xs, ys))
+    return " ".join(
+        f"{(x.float() - y.float()).abs().max().item():.1e}" for x, y in zip(xs, ys, strict=True)
+    )
 
 
 def kda_arm(name, fn, do):
@@ -78,19 +88,28 @@ def kda_arm(name, fn, do):
         torch.cuda.synchronize()
         ref = [t.clone() for t in run()]
         torch.cuda.synchronize()
-        gr.replay(); torch.cuda.synchronize()
+        gr.replay()
+        torch.cuda.synchronize()
         print(f"   parity max|eager-replay| o,grads: {maxdiff(ref, out)}", flush=True)
         eg, ec = timed(run)
         gg, gc = timed(gr.replay)
-        print(f"   eager GPU {eg:8.3f} ms CPU {ec:7.3f} | graph GPU {gg:8.3f} ms CPU {gc:6.3f} | saved {eg-gg:+.3f} ms GPU", flush=True)
+        print(
+            f"   eager GPU {eg:8.3f} ms CPU {ec:7.3f} | graph GPU {gg:8.3f} ms CPU {gc:6.3f}"
+            f" | saved {eg - gg:+.3f} ms GPU",
+            flush=True,
+        )
         del gr
     except Exception:
-        print("   FAILED:", flush=True); traceback.print_exc()
+        print("   FAILED:", flush=True)
+        traceback.print_exc()
     torch.cuda.synchronize()
 
 
 def cconv_arm(D, do_shape=None):
-    print(f"\n== cconv kernel-fun D={D}  B={B} T={T}: fwd+bwd, capture on the warmup stream", flush=True)
+    print(
+        f"\n== cconv kernel-fun D={D}  B={B} T={T}: fwd+bwd, capture on the warmup stream",
+        flush=True,
+    )
     try:
         from kernel_fun.cconv import causal_conv1d
 
@@ -115,14 +134,20 @@ def cconv_arm(D, do_shape=None):
         torch.cuda.synchronize()
         ref = [t.clone() for t in run()]
         torch.cuda.synchronize()
-        gr.replay(); torch.cuda.synchronize()
+        gr.replay()
+        torch.cuda.synchronize()
         print(f"   parity max|eager-replay| y,dx,dw: {maxdiff(ref, out)}", flush=True)
         eg, ec = timed(run)
         gg, gc = timed(gr.replay)
-        print(f"   eager GPU {eg:8.3f} ms CPU {ec:7.3f} | graph GPU {gg:8.3f} ms CPU {gc:6.3f} | saved {eg-gg:+.3f} ms GPU", flush=True)
+        print(
+            f"   eager GPU {eg:8.3f} ms CPU {ec:7.3f} | graph GPU {gg:8.3f} ms CPU {gc:6.3f}"
+            f" | saved {eg - gg:+.3f} ms GPU",
+            flush=True,
+        )
         del gr
     except Exception:
-        print("   FAILED:", flush=True); traceback.print_exc()
+        print("   FAILED:", flush=True)
+        traceback.print_exc()
     torch.cuda.synchronize()
 
 
@@ -131,7 +156,6 @@ if __name__ == "__main__":
 
     import kernel_fun
     from kernel_fun import cconv, kda
-    from kernel_fun._common import support
     from kernel_fun.kda import chunk_kda
 
     print("kernel-fun", kernel_fun.versions(), flush=True)

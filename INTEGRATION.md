@@ -36,6 +36,27 @@ The extra's URL, for reference:
 kernel-fun @ git+https://github.com/allenai/kernel-fun.git@<sha>
 ```
 
+Three rules for that extra, from reading OLMo-core's build (2026-09-09):
+
+- **Bare `kernel-fun`, no `[cu13]`/`[cu12]`.** OLMo-core's images already carry the CuTe
+  DSL through the `fa4` extra (flash-attn-4 -> nvidia-cutlass-dsl), and the CUDA major is
+  decided once, in the Dockerfile (`CUDA_VERSION_PATH`, and `FLASH_ATTN_4_EXTRAS='[cu13]'`
+  on the B300 image). One extra then works on both the cu128 and cu130 images; the
+  package's own CUDA extras are for environments that have no DSL at all. Nothing in the
+  bare install replaces the image's torch/triton/fla — the floors are below both images.
+- **The git URL cannot sit in the extra** if `ai2-olmo-core` is to keep publishing: PyPI
+  rejects metadata with a direct-URL requirement (the pyproject says so at `dion`). Put
+  the source in `[tool.uv.sources]` as `dion` does, or publish kernel-fun to PyPI and pin
+  a version.
+- **fla must be 0.5.2 on the branch that merges.** The package requires
+  `fla-core>=0.5.2`; a branch still on flash-linear-attention 0.4.1 (the B300 image
+  branch, today) would end up with a mixed `fla/` tree.
+
+If a cu130 image is ever built with FA4's bare requirement, the package logs a
+`CUDA 12 one (nvidia-cutlass-dsl-libs-cu12 without -cu13)` warning at first use — see
+`support.cute_cuda_mismatch`. It warns rather than falls back, because the wrong-build DSL
+may still compile; treat the line as a build-arg bug.
+
 Both route `flash_linear_attn_api.py::dispatch_chunk_kda` and `dispatch_causal_conv1d` to
 the package when `KimiDeltaAttentionConfig.use_cute_kernel=True`; that one flag drives BOTH
 families (it is plumbed to the three Q/K/V `CausalConv1d`s). There is no other copy of

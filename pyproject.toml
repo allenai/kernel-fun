@@ -9,15 +9,34 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kernel-fun"
-version = "0.2.0.dev0"
-description = "CuTe/Triton kernels for linear-attention ops (KDA chunk kernel, KDA short conv), as drop-in replacements for flash-linear-attention"
+# The version lives ONCE, in src/kernel_fun/__init__.py (`__version__`); hatch reads it from
+# there (see [tool.hatch.version]). It used to be written here as well, and two copies of a
+# version number agree right up until the release where they don't.
+dynamic = ["version"]
+description = "CuTe/Triton kernels for linear-attention ops (KDA chunk kernel, KDA short conv), as drop-in replacements for flash-linear-attention, on Blackwell"
+readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Allen Institute for AI" }]
+keywords = ["cuda", "blackwell", "triton", "cutlass", "cute", "linear-attention", "kda", "flash-linear-attention"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Environment :: GPU :: NVIDIA CUDA :: 13",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 # Loose floors, not pins. This installs into training images (olmo-core's) whose torch and
 # triton are the ones the whole stack was built against; an `==` here invites pip to
 # resolve-and-replace them, which is the exact failure the image's constraints-file dance
 # exists to prevent. fla is capped because we call its internals (see _common/compat.py).
+# The floors are where sm_100 code generation first appears (torch 2.7 / triton 3.3); what
+# the kernels are actually TESTED against is torch 2.11+cu130 / triton 3.6 — README, "Install".
 dependencies = [
     "torch>=2.7",
     "triton>=3.3",
@@ -31,15 +50,33 @@ Source = "https://github.com/allenai/kernel-fun"
 "Research ladder" = "https://github.com/allenai/kernel-fun-dev"
 
 [project.optional-dependencies]
-# The CuTe DSL and cuda-python ride in with the training base image and the version there
-# is a nightly (4.6.0.dev0). Declaring them as hard dependencies would let pip swap that
-# build out from under the kernels; instead the runtime probe treats their absence as
-# "fall back to fla", i.e. a performance regression rather than a crash. This extra exists
-# for environments that genuinely need to install them.
-cute = ["nvidia-cutlass-dsl>=4.2", "cuda-python>=12.6"]
+# The CuTe DSL and cuda-python ride in with the training base image (nvidia-cutlass-dsl
+# 4.6.0.dev0 on CUDA 13.0). Declaring them as hard dependencies would let pip swap that build
+# out from under the kernels; instead the runtime probe treats their absence as "fall back to
+# fla", i.e. a performance regression rather than a crash. These extras exist for environments
+# that genuinely need to install them — and the CUDA major matters:
+#
+#   nvidia-cutlass-dsl's default wheel set is the CUDA 12 one. Since 4.6.0 the bare
+#   requirement pulls `nvidia-cutlass-dsl-libs-cu12` unconditionally and the CUDA 13 libs
+#   only through the `[cu13]` extra (4.4.x-4.5.x: cu13 is an extra too; 4.2.0 even pinned
+#   cuda-python<13). So `nvidia-cutlass-dsl>=4.2` on a CUDA 13 host is a CuTe DSL built
+#   against the wrong toolkit — which is what the previous `cute` extra asked for.
+#
+# cu13 is the production one (B200/B300 on the cu130 torch image). cu12 is kept for a
+# cu128 torch environment; nothing in this repo has been run on it since the image moved.
+cu13 = ["nvidia-cutlass-dsl[cu13]>=4.4", "cuda-python>=13"]
+cu12 = ["nvidia-cutlass-dsl>=4.2.1", "cuda-python>=12.8,<13"]
+
+[tool.hatch.version]
+path = "src/kernel_fun/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kernel_fun"]
+
+# No sdist section on purpose: hatchling's defaults ship tests/, tools/ and the docs, which
+# INTEGRATION.md §2 runs from an installed copy on the training node. (.gitignore is in the
+# sdist too, and cannot be excluded — hatch always includes it, to re-apply the ignore
+# rules when building the wheel from the sdist.)
 
 # --- Tool config -------------------------------------------------------------------------
 # Inherited from the ladder repo's root pyproject until the split; restated here because
@@ -56,6 +93,15 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# The vendored kernels are the ladder's measured code, edited on arrival only for packaging
+# (_kernels/__init__.py). Reflowing them for a linter would put a cosmetic diff between the
+# package and the recorded bench row, and `tools/vendor.py` would undo it at the next win.
+# Style rules are waived there; F (real errors) stays on, except F841 for one intentional
+# unpack. `_provenance.py` is generated: one hash per line, longer than the limit.
+"src/kernel_fun/*/_kernels/*.py" = ["E501", "I001", "UP006", "UP035", "B007", "B905", "F841"]
+"src/kernel_fun/*/_provenance.py" = ["E501"]
 
 [tool.pyright]
 extraPaths = ["src"]

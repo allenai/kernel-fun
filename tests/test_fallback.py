@@ -80,7 +80,7 @@ def test_unsupported_goes_to_fla_bit_identically(case):
         # fla itself accepts these, so the results are comparable end to end.
         with torch.no_grad():
             ours, ref = _fla_and_ours(kwargs)
-        for a, b in zip(ours, ref):
+        for a, b in zip(ours, ref, strict=True):
             if a is None or b is None:
                 assert a is None and b is None
             else:
@@ -191,7 +191,8 @@ def test_warm_shape_captures_and_replays_bit_identically():
         replayed = run()
     g.replay()
     torch.cuda.synchronize()
-    for name, a, b in zip(("o", "ht", "dq", "dk", "dv", "dg", "dbeta", "dh0"), eager, replayed):
+    names = ("o", "ht", "dq", "dk", "dv", "dg", "dbeta", "dh0")
+    for name, a, b in zip(names, eager, replayed, strict=True):
         assert torch.equal(a, b), f"{name}: replay differs from eager"
 
     names = launched_kernels(g.replay)
@@ -230,3 +231,20 @@ def test_fla_signature_is_fully_covered():
     assert not uncovered, (
         f"fla.chunk_kda has parameters kernel-fun does not classify: {sorted(uncovered)}"
     )
+
+
+def test_cute_cuda_mismatch_only_flags_the_detectable_case():
+    """CUDA 13 torch + cu12-only DSL libs is the one mismatch PyPI metadata can reveal
+    (nvidia-cutlass-dsl >= 4.6 ships cu13 only as an extra). Everything else must stay
+    quiet: pre-split installs, matching installs, no DSL, no CUDA torch."""
+    from kernel_fun._common.support import cute_cuda_mismatch as m
+
+    dsl = "nvidia-cutlass-dsl"
+    cu12, cu13 = f"{dsl}-libs-cu12", f"{dsl}-libs-cu13"
+    assert m("13.0", frozenset({dsl, cu12})) is not None
+    assert m("13.0", frozenset({dsl, cu12, cu13})) is None     # [cu13] was installed
+    assert m("13.0", frozenset({dsl})) is None                 # pre-4.6 wheel, libs in base
+    assert m("12.8", frozenset({dsl, cu12})) is None
+    assert m("12.8", frozenset({dsl, cu12, cu13})) is None     # cu12 present; undetectable
+    assert m("13.0", frozenset()) is None                      # no DSL: has_cute is False anyway
+    assert m(None, frozenset({dsl, cu12})) is None             # CPU torch
