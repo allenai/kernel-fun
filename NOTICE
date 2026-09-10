@@ -28,6 +28,11 @@ The CuTe kernels (fwd_state.py, bwd_scan.py, bwd_dhu.py, bwd_intra.py) are
 original work, though they implement fla's algorithms at fla's stage
 boundaries so that results remain comparable stage by stage.
 
+Attribution for the other projects this package depends on at runtime (torch,
+triton, and the optional NVIDIA CuTe DSL / cuda-python extras) is in
+THIRD_PARTY_NOTICES.md. None of them are vendored here; they are installed
+separately by pip.
+
 --------------------------------------------------------------------------------
 flash-linear-attention — MIT License
 --------------------------------------------------------------------------------

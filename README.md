@@ -255,6 +255,9 @@ can hold to fla's own tolerances. For cconv it is one module: both directions, w
 
 Apache-2.0 (`LICENSE`), matching the research ladder and Ai2's default. Three of the Triton
 modules are derived from flash-linear-attention, which is MIT: `NOTICE` names them module by
-module and reproduces the MIT terms, which keep applying to those portions. Both files ship
-inside the wheel — `license-files` in `pyproject.toml` puts them there, which is what makes
-the attribution travel with an install rather than living only in this checkout.
+module and reproduces the MIT terms, which keep applying to those portions.
+`THIRD_PARTY_NOTICES.md` covers the rest of the dependency set — torch (BSD-3-Clause),
+triton (MIT), and the NVIDIA-licensed CuTe DSL and cuda-python that arrive with the base
+image — none of which are vendored here. All three files ship inside the wheel —
+`license-files` in `pyproject.toml` puts them there, which is what makes the attribution
+travel with an install rather than living only in this checkout.
