@@ -37,7 +37,7 @@ kernels/kda/ideas/005-*/  --(tools/vendor.py)-->  src/kernel_fun/kda/_kernels/  
 - **A change to what ships** — a released stage, the fallback gate, the call cache, the
   public signatures, the tests, the version: **here**. Never by editing OLMo-core's copy.
 - **A won ladder row that should ship:** `python tools/vendor.py --family <f> --from-commit
-  <ladder sha>` here, then its checklist by hand, then a release (INTEGRATION.md §1).
+  <ladder sha>` here, then its checklist by hand, then a release ("Releasing" below).
   `tools/vendor.py` and `tools/drift.py` need a ladder checkout: they default to
   `../kernel-fun-dev` beside this repo, and take `--ladder PATH` or `$KERNEL_FUN_LADDER`.
 - Version tags (`v0.2.0`, …) live **here**. `_provenance.py`'s `SOURCE_COMMIT` is a sha in
@@ -250,6 +250,44 @@ For kda that is ~10 modules of the ladder's ~13k lines: the forward scan+readout
 the backward's seven stages. The rest of the chain is fla's own kernels at fla's own stage
 boundaries — which is what makes a stage-by-stage comparison meaningful, and why the tests
 can hold to fla's own tolerances. For cconv it is one module: both directions, whole.
+
+## Releasing
+
+Published to PyPI as [`kernel-fun`](https://pypi.org/project/kernel-fun/) by
+`.github/workflows/release.yml`. Auth is **Trusted Publishing**: GitHub mints a short-lived
+OIDC token for the job, PyPI checks four claims against a publisher entry it holds, and
+trades it for an upload token good for minutes. No API token exists in this repo, in GitHub
+secrets, or on anyone's laptop. The four claims are owner `allenai`, repository
+`kernel-fun`, workflow filename `release.yml`, and the environment — so **renaming that
+workflow file, or an environment, breaks publishing** until the entry on PyPI is edited to
+match. That is the one non-obvious way this setup fails.
+
+| index | trigger | environment |
+|---|---|---|
+| TestPyPI | Actions → Release → Run workflow, target `testpypi` | `testpypi`, ungated |
+| PyPI | push a `v*` tag | `pypi`, manual approval, `v*` tags only |
+
+Cutting a release:
+
+```sh
+# 1. bump __version__ in src/kernel_fun/__init__.py  (the ONLY place it lives)
+# 2. rehearse on TestPyPI first -- it is the only way to exercise the real upload path
+gh workflow run Release -f target=testpypi
+# 3. tag; the build refuses a tag that disagrees with __version__, then waits for approval
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+Two things here cannot be undone, which is what the approval gate and the tag check are
+for: **a version number is burnable once** — deleting `0.2.0` from PyPI does not let you
+re-upload it, so a bad release is fixed by shipping `0.2.1`, never by replacing it — and a
+release with a tag that disagrees with the metadata inside the wheel cannot be corrected in
+place. Installing from TestPyPI needs both indexes, since torch and `fla-core` are not
+mirrored there:
+
+```sh
+pip install --index-url https://test.pypi.org/simple/ \
+            --extra-index-url https://pypi.org/simple/ --pre kernel-fun
+```
 
 ## Licensing
 

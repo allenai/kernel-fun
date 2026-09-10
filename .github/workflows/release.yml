@@ -1,0 +1,95 @@
+# Publishing kernel-fun to PyPI.
+#
+# Auth is PyPI Trusted Publishing (OIDC): no API token is stored in this repo or in GitHub
+# secrets. PyPI matches four claims out of the token GitHub mints for this job -- owner,
+# repository, THIS FILENAME, and the environment named below. Renaming this file, or
+# renaming an environment, breaks publishing with a claims mismatch until the publisher
+# entry on PyPI is edited to match. See README.md "Releasing".
+#
+#   TestPyPI   workflow_dispatch, target=testpypi   -> environment `testpypi`
+#   PyPI       push a `v*` tag (or dispatch)        -> environment `pypi`
+#
+# A version on PyPI can never be reused, so the build job refuses a tag that disagrees with
+# `__version__`; the tag is the thing humans read, and the metadata is what actually ships.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Index to publish to"
+        type: choice
+        options: [testpypi, pypi]
+        default: testpypi
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      # Metadata that fails here fails AFTER upload otherwise, and by then the version is
+      # burned. Cheap gate: PyPI's own renderer/validator, run before anything is sent.
+      - name: Check metadata
+        run: uvx twine check --strict dist/*
+
+      # The wheel's version comes from src/kernel_fun/__init__.py. If someone tags v0.3.0
+      # without bumping it, the upload succeeds and ships 0.2.0 under a 0.3.0 tag -- an
+      # inconsistency that cannot be corrected in place. Refuse instead.
+      - name: Tag agrees with __version__
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          built=$(ls dist/*.whl | sed -E 's/.*kernel_fun-(.+)-py3-none-any\.whl/\1/')
+          echo "tag=$tag  built=$built"
+          [ "$tag" = "$built" ] || { echo "::error::tag v$tag != __version__ $built"; exit 1; }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  testpypi:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/kernel-fun
+    permissions:
+      id-token: write  # mint the OIDC token PyPI trades for a short-lived upload token
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/kernel-fun
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@v1.14.2
