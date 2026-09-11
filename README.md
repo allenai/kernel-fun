@@ -105,12 +105,14 @@ not a training result.
 ## Install
 
 ```
-pip install "kernel-fun @ git+ssh://git@github.com/allenai/kernel-fun.git@v0.2.0"
+pip install kernel-fun                                                          # from PyPI
+pip install "kernel-fun @ git+ssh://git@github.com/allenai/kernel-fun.git@v0.2.0"  # or a tag
 ```
 
-(Tags live in this repo; before the first one exists, pin a sha instead of `@v0.2.0`. The
-URL no longer carries `#subdirectory=packages/kernel-fun` — that was the path inside the
-ladder repo, before the 2026-09-09 split.)
+(`0.2.0` is the first non-pre-release on PyPI; `0.2.0.dev0`/`.dev1` were the rehearsals and
+plain `pip install` skips them. Tags live in this repo, so a git pin takes `@v0.2.0` or a
+sha. The URL no longer carries `#subdirectory=packages/kernel-fun` — that was the path
+inside the ladder repo, before the 2026-09-09 split.)
 
 The base install declares torch, triton and `fla-core` only, with loose floors, so it never
 replaces the torch/triton a training image was built against. The CuTe DSL and cuda-python
