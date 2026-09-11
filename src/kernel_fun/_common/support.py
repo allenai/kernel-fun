@@ -147,6 +147,38 @@ def debug() -> bool:
     return os.environ.get("KERNEL_FUN_DEBUG", "0") == "1"
 
 
+def min_ctas(family: str) -> int:
+    """`family`'s dispatch floor: `MIN_CTAS`, or `KERNEL_FUN_<FAMILY>_MIN_CTAS` if set.
+
+    A performance heuristic, not a capability — the kernels run below it, they just lose to
+    fla where the CuTe scans underfill the GPU — and the crossover belongs to the workload,
+    not to the hardware. So a shape that has been *measured* below the default can opt in
+    from outside, instead of a training script assigning to `MIN_CTAS` and moving whichever
+    per-stage gates happened to bind it at import.
+
+    Only the chain-level gate moves. Every kernel keeps its own floor, so a lowered value
+    changes which stages are ours, never what any of them computes.
+
+    Read per call, like `disabled`. A value that is not a positive integer is ignored with a
+    warning: falling back is this package's job, ending someone's run at step 1 is not.
+    """
+    raw = os.environ.get(f"KERNEL_FUN_{family.upper()}_MIN_CTAS")
+    if raw is None:
+        return MIN_CTAS
+    try:
+        floor = int(raw)
+    except ValueError:
+        floor = 0
+    if floor < 1:
+        log_once(
+            f"kernel-fun {family}: ignoring KERNEL_FUN_{family.upper()}_MIN_CTAS={raw!r} "
+            f"(want a positive integer); using the default floor of {MIN_CTAS} CTAs",
+            logging.WARNING,
+        )
+        return MIN_CTAS
+    return floor
+
+
 def capturing() -> bool:
     """Is a CUDA graph being captured on this stream?"""
     try:

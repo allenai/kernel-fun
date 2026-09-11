@@ -91,10 +91,26 @@ def is_supported(
     if initial_state is not None and initial_state.dtype != torch.float32:
         return False, f"initial_state must be fp32, got {initial_state.dtype}"
     # Below this the CuTe scans underfill the GPU and fla is genuinely faster. Not a
-    # correctness gate — the kernels would run — so it is worth stating in the log.
+    # correctness gate — the kernels would run — so it is worth stating in the log. Where
+    # the crossover actually falls is a property of the workload, which is why
+    # KERNEL_FUN_KDA_MIN_CTAS can move THIS gate for a shape somebody has timed. It moves
+    # nothing else: every check above is a capability, and every stage below keeps its own.
     ctas = B * HV * (V // 64)
-    if ctas < support.MIN_CTAS:
-        return False, f"grid too small ({ctas} CTAs < {support.MIN_CTAS}); fla is faster here"
+    floor = support.min_ctas("kda")
+    if ctas < floor:
+        why = "fla is faster here" if floor == support.MIN_CTAS else "configured floor"
+        return False, f"grid too small ({ctas} CTAs < {floor}); {why}"
+    if floor != support.MIN_CTAS:
+        caveat = ""
+        if floor < support.MIN_CTAS:
+            caveat = (
+                f"; per-stage floors do not follow it, so the b1 scan and dhu backwards "
+                f"are fla's below {support.MIN_CTAS} CTAs"
+            )
+        support.log_once(
+            f"kernel-fun kda: dispatch floor is {floor} CTAs, not the default "
+            f"{support.MIN_CTAS} (KERNEL_FUN_KDA_MIN_CTAS){caveat}"
+        )
     # Last, so it only speaks for a call that would otherwise be ours.
     needs_grad = torch.is_grad_enabled() and (q.requires_grad or v.requires_grad)
     reason = support.capture_unsupported_reason(
@@ -245,6 +261,12 @@ def warmup(
     while the fourth quietly warms up its Triton fallback instead. Also runs the fla
     compatibility probe, so a version mismatch raises here rather than at step 40,000.
 
+    KERNEL_FUN_KDA_MIN_CTAS earns a second pass. Raised, the first shape has to reach the
+    new floor or this call falls back and compiles nothing. LOWERED, it puts production on
+    a chain this shape never takes — the b1 scan and dhu keep their own 256 floors, so
+    below it they are fla's, and fla autotunes them at step 1 unless something warms them
+    here. Hence one pass per grid the process will actually dispatch at.
+
     Returns the elapsed seconds — log it.
     """
     import time
@@ -252,36 +274,53 @@ def warmup(
     from .._common.compat import check_fla
     from ._kernels.bwd_intra import _MIN_CTAS as INTRA_MIN_CTAS
 
+    def one_pass(B: int) -> None:
+        kw = dict(device=device, dtype=dtype)
+        q = torch.randn(B, T, HV, K, **kw, requires_grad=True)
+        k = torch.randn(B, T, HV, K, **kw, requires_grad=True)
+        v = torch.randn(B, T, HV, V, **kw, requires_grad=True)
+        beta = torch.rand(B, T, HV, **kw, requires_grad=True)
+        A_log = dt_bias = None
+        if use_gate_in_kernel:
+            g = torch.randn(B, T, HV, K, **kw, requires_grad=True)
+            A_log = torch.rand(HV, device=device, dtype=torch.float32).add(1).log()
+            dt_bias = torch.zeros(HV * K, device=device, dtype=torch.float32)
+        else:
+            g = torch.nn.functional.logsigmoid(
+                torch.randn(B, T, HV, K, device=device, dtype=torch.float32)
+            ).requires_grad_(True)
+        o, ht = chunk_kda(
+            q, k, v, g, beta, initial_state=None, output_final_state=True,
+            use_qk_l2norm_in_kernel=use_qk_l2norm, use_gate_in_kernel=use_gate_in_kernel,
+            A_log=A_log, dt_bias=dt_bias,
+        )
+        (o.float().square().sum() + ht.float().square().sum()).backward()
+        torch.cuda.synchronize()
+
     check_fla()
     T = 1024
+    per_b = HV * max(V // 64, 1)
+    dispatch = support.min_ctas("kda")
+    # The compile pass: the four CuTe kernels, so it clears the default floor (two of them
+    # have their own 256) AND the intra kernel's, and a raised dispatch floor on top.
     B = max(
-        -(-support.MIN_CTAS // (HV * max(V // 64, 1))),
+        -(-max(support.MIN_CTAS, dispatch) // per_b),
         -(-INTRA_MIN_CTAS // (HV * (T // 64))),
         1,
     )
+    grids = [B]
+    # The autotune pass, only for a lowered floor: the fla stages production is about to
+    # run there. Nothing NEW of ours compiles at this grid — the compile keys are the same
+    # — so what it costs is one small fwd+bwd and what it buys is fla's autotune.
+    if dispatch < support.MIN_CTAS:
+        B_low = max(-(-dispatch // per_b), 1)
+        if B_low < B:
+            grids.append(B_low)
+
     t0 = time.perf_counter()
     torch.manual_seed(0)
-    kw = dict(device=device, dtype=dtype)
-    q = torch.randn(B, T, HV, K, **kw, requires_grad=True)
-    k = torch.randn(B, T, HV, K, **kw, requires_grad=True)
-    v = torch.randn(B, T, HV, V, **kw, requires_grad=True)
-    beta = torch.rand(B, T, HV, **kw, requires_grad=True)
-    A_log = dt_bias = None
-    if use_gate_in_kernel:
-        g = torch.randn(B, T, HV, K, **kw, requires_grad=True)
-        A_log = torch.rand(HV, device=device, dtype=torch.float32).add(1).log()
-        dt_bias = torch.zeros(HV * K, device=device, dtype=torch.float32)
-    else:
-        g = torch.nn.functional.logsigmoid(
-            torch.randn(B, T, HV, K, device=device, dtype=torch.float32)
-        ).requires_grad_(True)
-    o, ht = chunk_kda(
-        q, k, v, g, beta, initial_state=None, output_final_state=True,
-        use_qk_l2norm_in_kernel=use_qk_l2norm, use_gate_in_kernel=use_gate_in_kernel,
-        A_log=A_log, dt_bias=dt_bias,
-    )
-    (o.float().square().sum() + ht.float().square().sum()).backward()
-    torch.cuda.synchronize()
+    for b in grids:
+        one_pass(b)
 
     # A warmup that silently compiled nothing is worse than none: it hides the cost it was
     # supposed to move, and the run pays it at step 1 anyway.

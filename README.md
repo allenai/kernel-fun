@@ -193,7 +193,8 @@ once per process.
 ### Supported — kda
 
 `chunk_size=64`, `T % 64 == 0`, `K ∈ {64, 128}`, `V % 64 == 0`, bf16/fp16, sm100
-(B200/B300), a grid of at least 256 CTAs. Under CUDA graph capture the shape must already
+(B200/B300), a grid of at least 256 CTAs (`B * HV * (V//64)`; `KERNEL_FUN_KDA_MIN_CTAS`
+moves that one number and nothing else — see Switches). Under CUDA graph capture the shape must already
 have run eagerly (fwd, and bwd if grads are needed): compile and autotune cannot be
 captured, but a warm shape captures and replays bit-identically, on any stream. Within that:
 `use_qk_l2norm_in_kernel`, `use_gate_in_kernel` (with `A_log`/`dt_bias`, fused into the
@@ -204,7 +205,10 @@ numerics deviation, covered by a test).
 Stages also fall back individually below their own floors — most notably the MMA intra
 backward, which needs `B * (T/64) * HV >= 1024` and otherwise uses a Triton kernel that is
 faster at that size. `is_supported` reports the chain-level gate; the per-stage ones are
-performance choices, and the launch-witness test is what pins them down.
+performance choices, and the launch-witness test is what pins them down. They do not
+follow the chain-level gate down: at a configured 128 CTAs the b1 scan and dhu backwards
+are still fla's, and what the opt-in buys is the forward scan, the transposed WY backward
+and the intra backward.
 
 Everything else goes to fla: `cu_seqlens` and packed documents, context parallel,
 `safe_gate`, `state_v_first`, `disable_recompute`, `return_intermediate_states`,
@@ -231,9 +235,18 @@ explicit `backend="cuda"`/`"mix"`, any unrecognized flag — goes to fla verbati
 | `KERNEL_FUN_KDA_DISABLE=1`, `KERNEL_FUN_CCONV_DISABLE=1` | same, one family |
 | `KERNEL_FUN_DEBUG=1` | log the fallback reason |
 | `KERNEL_FUN_FALLBACK=1` | downgrade an fla-drift error to a warning + fallback |
+| `KERNEL_FUN_KDA_MIN_CTAS=<n>` | move the kda chain-level CTA floor off 256. Per workload, per measurement |
 
-All read per call. There are deliberately no per-stage knobs: bisecting a stage means
-reaching for the research ladder, which keeps all of them.
+All read per call, and a value that is not a positive integer is a warning and the default,
+not an exception — a launcher typo should cost throughput, not the run. There are
+deliberately no per-stage knobs: `MIN_CTAS` is the dispatch gate, not a stage, and bisecting
+a stage means reaching for the research ladder, which keeps all of them.
+
+`KERNEL_FUN_KDA_MIN_CTAS` is the one knob that can make things *slower*: 256 is where the
+CuTe scans stop underfilling the GPU on the shapes measured so far, and lowering it is a
+claim about one model on one box. The small OLMoE3 candidate (B4/T8192/HV8/K128/V256 — 128
+CTAs) is the shape it exists for. Time it against the default before believing it, and give
+`warmup()` the same environment the run will have: it warms one grid per floor in play.
 
 ## How it relates to the research repo
 

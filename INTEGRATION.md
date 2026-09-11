@@ -171,6 +171,16 @@ noise of arm 1, the problem is integration, not numerics, and no amount of kerne
 fix it. If arm 2 disappoints, `KERNEL_FUN_KDA_DISABLE=1` / `KERNEL_FUN_CCONV_DISABLE=1`
 split it by family without a config change.
 
+A fourth arm exists only for a model whose KDA grid is below the chain-level floor —
+`B * HV * (V//64) < 256`, which the small OLMoE3 candidate's B4/HV8/V256 is, at 128.
+`KERNEL_FUN_KDA_MIN_CTAS=128` moves that floor so those calls dispatch here instead of
+reporting `grid too small` and going to fla. It is a measured opt-in for one shape on one
+box, not a better default: the b1 scan and dhu backwards keep their own 256-CTA floors and
+stay on fla at that grid, so the arm is worth running only against arm 1, on the model you
+intend to train, and only after the log stops saying `grid too small`. Set it for
+`warmup()` too — it warms one grid per floor in play, and the stages this arm adds are
+autotuned in step 1 otherwise.
+
 Then:
 
 - [ ] **`TORCH_LOGS=recompiles,graph_breaks`, diff arm 1 against arm 2.** Free — the Beaker
